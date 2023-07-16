@@ -1,6 +1,6 @@
 # PSO2 Proxy
 
-Simple proxy for capturing PSO2 packets.
+Simple proxy for capturing PSO2 packets. Currently, it only works for the global version due to the hardcoded IP address.
 
 ## Usage
 
