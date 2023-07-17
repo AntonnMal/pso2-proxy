@@ -131,7 +131,7 @@ fn parse_paket(
     } else if let Packet::ShipList(ships) = packet {
         for ship in &mut ships.ships {
             let ip = ship.ip;
-			let port = (12181 + (100 * (ship.id / 1000 - 1))) as u16;
+            let port = (12181 + (100 * (ship.id / 1000 - 1))) as u16;
             to_open
                 .lock()
                 .unwrap()
@@ -219,7 +219,7 @@ fn replace_pq(
     change_data.read_exact(&mut ip)?;
     change_data.seek(SeekFrom::Current(-4))?;
     change_data.write_all(&callback_ip.octets())?;
-    change_data.set_position(0x28);
+    change_data.set_position(0x20);
     change_data.read_exact(&mut port)?;
     let port = u16::from_le_bytes(port);
     change_data.seek(SeekFrom::Current(-2))?;
