@@ -1,4 +1,5 @@
 use proxy::{handle_con, handle_con_ex};
+use rsa::{pkcs8::EncodePrivateKey, RsaPrivateKey};
 use std::error;
 use std::io;
 use std::net::TcpListener;
@@ -7,7 +8,6 @@ use std::{
     collections::{hash_map, HashMap},
     net::SocketAddr,
 };
-use rsa::{RsaPrivateKey, pkcs8::EncodePrivateKey};
 
 fn main() -> Result<(), Box<dyn error::Error>> {
     match std::fs::create_dir("captures") {
@@ -91,7 +91,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 match stream {
                     Ok(s) => {
                         let _guard = rt.enter();
-                        let mut port = ip.port();
+                        let port = ip.port();
                         tokio::spawn(handle_con_ex(
                             s,
                             SocketAddr::new(ip.ip(), port),

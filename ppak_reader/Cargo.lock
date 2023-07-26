@@ -153,6 +153,7 @@ checksum = "dd8b5dd2ae5ed71462c540258bedcb51965123ad7e7ccf4b9a8cafaa4a63576d"
 [[package]]
 name = "packetlib_impl"
 version = "0.1.0"
+source = "git+https://github.com/AntonnMal/pso2-protocol-lib?rev=a5adc13#a5adc131086c7f87bcd283c55ecaf8b4a177d46e"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -181,6 +182,7 @@ dependencies = [
 [[package]]
 name = "pso2packetlib"
 version = "0.1.0"
+source = "git+https://github.com/AntonnMal/pso2-protocol-lib?rev=a5adc13#a5adc131086c7f87bcd283c55ecaf8b4a177d46e"
 dependencies = [
  "byteorder",
  "half",

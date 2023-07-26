@@ -6,6 +6,7 @@ use std::time::SystemTime;
 
 use pso2packetlib::protocol::Packet;
 use pso2packetlib::Connection;
+use pso2packetlib::protocol::ProtocolRW;
 
 pub async fn handle_con_ex(
     in_stream: std::net::TcpStream,
@@ -176,11 +177,11 @@ fn replace_balance(
     change_data.read_exact(&mut port)?;
     let port = u16::from_le_bytes(port);
     change_data.seek(SeekFrom::Current(-2))?;
-    change_data.write_all(&(port + 1000).to_le_bytes())?;
+    change_data.write_all(&(port + 2000).to_le_bytes())?;
     to_open
         .lock()
         .unwrap()
-        .push((SocketAddr::from((ip, port)), port + 1000));
+        .push((SocketAddr::from((ip, port)), port + 2000));
     Ok(())
 }
 
@@ -199,11 +200,11 @@ fn replace_pso2(
     change_data.read_exact(&mut port)?;
     let port = u16::from_le_bytes(port);
     change_data.seek(SeekFrom::Current(-2))?;
-    change_data.write_all(&(port + 1000).to_le_bytes())?;
+    change_data.write_all(&(port + 2000).to_le_bytes())?;
     to_open
         .lock()
         .unwrap()
-        .push((SocketAddr::from((ip, port)), port + 1000));
+        .push((SocketAddr::from((ip, port)), port + 2000));
     Ok(())
 }
 
@@ -223,10 +224,10 @@ fn replace_pq(
     change_data.read_exact(&mut port)?;
     let port = u16::from_le_bytes(port);
     change_data.seek(SeekFrom::Current(-2))?;
-    change_data.write_all(&(port + 1000).to_le_bytes())?;
+    change_data.write_all(&(port + 2000).to_le_bytes())?;
     to_open
         .lock()
         .unwrap()
-        .push((SocketAddr::from((ip, port)), port + 1000));
+        .push((SocketAddr::from((ip, port)), port + 2000));
     Ok(())
 }
