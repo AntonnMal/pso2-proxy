@@ -127,11 +127,17 @@ fn parse_paket(
             (0x11, 0x2c) => replace_balance(&mut data.1[..], to_open, callback_ip)?,
             (0x11, 0x13) => replace_pso2(&mut data.1[..], to_open, callback_ip)?,
             (0x11, 0x17) => replace_pq(&mut data.1[..], to_open, callback_ip)?,
+            //creative space
+			(0x11, 0x121) => replace_cc(&mut data.1[..], to_open, callback_ip)?,
+            //shared ship
+			(0x11, 0x21) => replace_shareship(&mut data.1[..], to_open, callback_ip)?,
             _ => {}
         }
     } else if let Packet::ShipList(ships) = packet {
         for ship in &mut ships.ships {
             let ip = ship.ip;
+            // In JP version, port distribution is from 12000 (i.e. Ship 10) to 12900 (for Ship 9) so the formula need change to something like
+            // let port = (12000 + (100 * (ship.id / 1000 % 10) )) as u16;
             let port = (12181 + (100 * (ship.id / 1000 - 1))) as u16;
             to_open
                 .lock()
@@ -221,6 +227,55 @@ fn replace_pq(
     change_data.seek(SeekFrom::Current(-4))?;
     change_data.write_all(&callback_ip.octets())?;
     change_data.set_position(0x20);
+    change_data.read_exact(&mut port)?;
+    let port = u16::from_le_bytes(port);
+    change_data.seek(SeekFrom::Current(-2))?;
+    change_data.write_all(&(port + 2000).to_le_bytes())?;
+    to_open
+        .lock()
+        .unwrap()
+        .push((SocketAddr::from((ip, port)), port + 2000));
+    Ok(())
+}
+
+
+fn replace_cc(
+    buff: &mut [u8],
+    to_open: &Arc<Mutex<Vec<(SocketAddr, u16)>>>,
+    callback_ip: Ipv4Addr,
+) -> io::Result<()> {
+    let mut change_data = Cursor::new(buff);
+    let mut ip = [0u8; 4];
+    let mut port = [0u8; 2];
+    change_data.set_position(0x18);
+    change_data.read_exact(&mut ip)?;
+    change_data.seek(SeekFrom::Current(-4))?;
+    change_data.write_all(&callback_ip.octets())?;
+	change_data.set_position(0x20);
+    change_data.read_exact(&mut port)?;
+    let port = u16::from_le_bytes(port);
+    change_data.seek(SeekFrom::Current(-2))?;
+    change_data.write_all(&(port + 2000).to_le_bytes())?;
+    to_open
+        .lock()
+        .unwrap()
+        .push((SocketAddr::from((ip, port)), port + 2000));
+    Ok(())
+}
+
+
+fn replace_shareship(
+    buff: &mut [u8],
+    to_open: &Arc<Mutex<Vec<(SocketAddr, u16)>>>,
+    callback_ip: Ipv4Addr,
+) -> io::Result<()> {
+    let mut change_data = Cursor::new(buff);
+    let mut ip = [0u8; 4];
+    let mut port = [0u8; 2];
+    change_data.set_position(0x0);
+    change_data.read_exact(&mut ip)?;
+    change_data.seek(SeekFrom::Current(-4))?;
+    change_data.write_all(&callback_ip.octets())?;
     change_data.read_exact(&mut port)?;
     let port = u16::from_le_bytes(port);
     change_data.seek(SeekFrom::Current(-2))?;
