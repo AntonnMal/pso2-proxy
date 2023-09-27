@@ -24,10 +24,22 @@ openssl rsa -in client_privkey.pem -outform MS\ PUBLICKEYBLOB -pubout -out publi
 
 All packets are logged and saved in the ".pak" format. Here's what it looks like:
 
+
+Header for version 3 (current):
+
+| Field   | Type      | Notes                                                                    |
+|---------|-----------|--------------------------------------------------------------------------|
+| Header  | char[4]   | Always `PPAK`                                                            |
+| Version | byte      | = 3                                                                      |
+| Client  | byte      | 0 - Classic (generic) <br> 1 - NGS <br> 2 - NA <br> 3 - JP <br> 4 - Vita |
+| Packets | Packet[_] | Format in the next table                                                 |
+
+Header for version 2:
+
 | Field   | Type      | Notes                    |
 |---------|-----------|--------------------------|
 | Header  | char[4]   | Always `PPAK`            |
-| Version | byte      | Currently 2              |
+| Version | byte      | = 2                      |
 | Packets | Packet[_] | Format in the next table |
 
 Packet format: 

@@ -1,6 +1,8 @@
 #include <std/mem.pat>
 #include <std/string.pat>
 #include <std/time.pat>
+#pragma pattern_limit 100000000
+#pragma array_limit 100000000
 struct Header {
     char Magic[4];
     if (Magic != "\x50\x50\x41\x43") {
@@ -40,10 +42,13 @@ struct Packet_v2 {
 
 struct file {
     Header header;
+    if (header.Ver == 3) {
+    u8 is_ngs;
+    }
     if (header.Ver == 1) {
         Packet_v1 packet[while(!std::mem::eof())];
     }
-    if (header.Ver == 2) {
+    if (header.Ver == 2 || header.Ver == 3) {
         Packet_v2 packet[while(!std::mem::eof())];
     }
 };
@@ -71,5 +76,3 @@ fn getenc(u8 enc) {
     else if (enc == 3) {return "RC4";}
 };
 file header @ 0x0;
-
-
