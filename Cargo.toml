@@ -11,4 +11,4 @@ futures = "0.3.26"
 rand = "0.8.5"
 rsa = "0.8.1"
 tokio = {version = "1.25.0", features = ["net", "rt-multi-thread"] }
-pso2packetlib = { git = "https://github.com/AntonnMal/pso2-protocol-lib", rev = "2070914", features = ["connection", "ngs_enc", "proxy", "ppac"] }
+pso2packetlib = { git = "https://github.com/PhantasyServer/pso2-protocol-lib", rev = "2070914", features = ["connection", "ngs_enc", "proxy", "ppac"] }
