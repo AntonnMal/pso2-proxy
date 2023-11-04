@@ -290,10 +290,10 @@ fn replace_shareship(
     change_data.read_exact(&mut port)?;
     let port = u16::from_le_bytes(port);
     change_data.seek(SeekFrom::Current(-2))?;
-    change_data.write_all(&(port + 2000).to_le_bytes())?;
+    change_data.write_all(&(port + 3000).to_le_bytes())?;
     to_open
         .lock()
         .unwrap()
-        .push((SocketAddr::from((ip, port)), port + 2000));
+        .push((SocketAddr::from((ip, port)), port + 3000));
     Ok(())
 }

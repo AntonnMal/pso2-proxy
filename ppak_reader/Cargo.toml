@@ -8,6 +8,6 @@ edition = "2021"
 [dependencies]
 byteorder = { version = "1.4.3", features = ["i128"]}
 chrono = "0.4.26"
-pso2packetlib = { git = "https://github.com/AntonnMal/pso2-protocol-lib", rev = "2070914", features = ["serde", "ppac", "ngs_packets"] }
+pso2packetlib = { git = "https://github.com/PhantasyServer/pso2-protocol-lib", rev = "2070914", features = ["serde", "ppac", "ngs_packets"] }
 serde = "1.0.174"
 serde_json = "1.0.99"
