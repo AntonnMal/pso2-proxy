@@ -1,6 +1,6 @@
 # PSO2 Proxy
 
-Simple proxy for capturing PSO2 packets. Currently, it only works for the global version due to the hardcoded IP address.
+Simple proxy for capturing PSO2 packets. Tested on global, but might work for JP.
 
 ## Usage
 
@@ -13,7 +13,7 @@ cargo build
 openssl rsa -pubin -inform MS\ PUBLICKEYBLOB -in SEGAKey1.blob -outform PEM -out server_pubkey.pem
 ```
 3) Run proxy once to generate private key or supply your own as `client_privkey.pem`.
-4) Transform your private key to injector's compatible format.
+4) (Optional) Transform your private key to injector's compatible format.
 ```
 # if using my rsa injector
 openssl rsa -in client_privkey.pem -outform MS\ PUBLICKEYBLOB -pubout -out publicKey.blob
