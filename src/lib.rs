@@ -130,18 +130,20 @@ async fn create_ship_listeners(
         let sockets = sockets.clone();
         let settings = settings.clone();
         tokio::spawn(async move {
-            match listener.accept().await {
-                Ok((s, _)) => {
-                    tokio::spawn(handle_con(
-                        s.into_std().unwrap(),
-                        settings.clone(),
-                        settings.ip,
-                        sockets.clone(),
-                    ));
-                }
-                Err(e) => {
-                    eprintln!("Failed to accept connection: {e}");
-                    return;
+            loop {
+                match listener.accept().await {
+                    Ok((s, _)) => {
+                        tokio::spawn(handle_con(
+                            s.into_std().unwrap(),
+                            settings.clone(),
+                            settings.ip,
+                            sockets.clone(),
+                        ));
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to accept connection: {e}");
+                        return;
+                    }
                 }
             }
         });
@@ -158,18 +160,20 @@ async fn create_listener(
 ) -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], port))).await?;
     tokio::spawn(async move {
-        match listener.accept().await {
-            Ok((s, _)) => {
-                tokio::spawn(handle_con(
-                    s.into_std().unwrap(),
-                    settings.clone(),
-                    ip,
-                    sockets.clone(),
-                ));
-            }
-            Err(e) => {
-                eprintln!("Failed to accept connection: {e}");
-                return;
+        loop {
+            match listener.accept().await {
+                Ok((s, _)) => {
+                    tokio::spawn(handle_con(
+                        s.into_std().unwrap(),
+                        settings.clone(),
+                        ip,
+                        sockets.clone(),
+                    ));
+                }
+                Err(e) => {
+                    eprintln!("Failed to accept connection: {e}");
+                    return;
+                }
             }
         }
     });
@@ -354,7 +358,13 @@ fn push_listener_var(sockets: &Mutex<Listeners>, address: SocketAddr) -> u16 {
         lock.opened_ports.push(port);
         port
     } else {
-        lock.open.iter().find(|&&a| a == address).unwrap().port()
+        let (pos, _) = lock
+            .open
+            .iter()
+            .enumerate()
+            .find(|(_, &a)| a == address)
+            .unwrap();
+        lock.opened_ports[pos]
     }
 }
 
