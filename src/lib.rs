@@ -240,7 +240,7 @@ async fn handle_con(
         match read_packet(
             &mut client_stream,
             &mut serv_stream,
-            0,
+            Direction::ToServer,
             &sockets,
             callback_ip,
         )
@@ -256,7 +256,7 @@ async fn handle_con(
         match read_packet(
             &mut serv_stream,
             &mut client_stream,
-            1,
+            Direction::ToClient,
             &sockets,
             callback_ip,
         )
@@ -278,7 +278,7 @@ async fn handle_con(
 async fn read_packet(
     in_conn: &mut ProxyConnection,
     out_conn: &mut ProxyConnection,
-    dir: u8,
+    dir: Direction,
     sockets: &Mutex<Listeners>,
     callback_ip: Ipv4Addr,
 ) -> io::Result<()> {
@@ -299,7 +299,7 @@ async fn read_packet(
 
 fn parse_packet(
     packet: &mut ProxyPacket,
-    dir: u8,
+    dir: Direction,
     sockets: &Mutex<Listeners>,
     callback_ip: Ipv4Addr,
 ) -> io::Result<()> {
@@ -325,9 +325,15 @@ fn parse_packet(
     } else if let ProxyPacket::ShipList(ships) = packet {
         for ship in &mut ships.ships {
             let ip = ship.ip;
-            let global_port = (12081 + (ship.id / 10 % 1000)) as u16;
+            let ship_id = ship.id / 1000;
+            let port_offset = match ship_id {
+                1..=9 => ship_id * 100,
+                10 => 0,
+                _ => continue,
+            };
+            let global_port = (12081 + port_offset) as u16;
             push_listener(sockets, SocketAddr::from((ip, global_port)));
-            let jp_port = (12000 + (ship.id / 10 % 1000)) as u16;
+            let jp_port = (12000 + port_offset) as u16;
             push_listener(sockets, SocketAddr::from((ip, jp_port)));
             ship.ip = callback_ip;
         }
@@ -368,8 +374,11 @@ fn push_listener_var(sockets: &Mutex<Listeners>, address: SocketAddr) -> u16 {
     }
 }
 
-fn write_packet(id: u8, subid: u16, flags: u8) {
-    let dir = if flags == 0 { "C->S" } else { "S->C" };
+fn write_packet(id: u8, subid: u16, dir: Direction) {
+    let dir = match dir {
+        Direction::ToServer => "C->S",
+        Direction::ToClient => "S->C",
+    };
     println!("{dir}: {id:X}, {subid:X}");
 }
 
