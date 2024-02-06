@@ -33,7 +33,7 @@ jobs:
       if: ${{ success() }}
       uses: actions/upload-artifact@v4
       with:
-        name: x86_64-linux-pso2server.tar.zst
+        name: x86_64-linux-proxy.tar.zst
         path: ./proxy.tar.zst
   crossbuild-windows:
     runs-on: ubuntu-22.04
@@ -62,8 +62,8 @@ jobs:
       if: ${{ success() }}
       uses: actions/upload-artifact@v4
       with:
-        name: x86_64-mingw-pso2server.7z
-        path: ./pso2server.7z
+        name: x86_64-mingw-proxy.7z
+        path: ./proxy.7z
   build-windows:
     runs-on: windows-2022
     needs: test
@@ -78,10 +78,10 @@ jobs:
       run: move target/release/proxy.exe .
     - name: Pack build artifacts and extra data
       if: ${{ success() }}
-      run: 7z a -mx9 pso2server.7z proxy.exe proxy.toml
+      run: 7z a -mx9 proxy.7z proxy.exe proxy.toml
     - name: Upload artifact
       if: ${{ success() }}
       uses: actions/upload-artifact@v4
       with:
-        name: x86_64-windows-pso2server.7z
-        path: ./pso2server.7z
+        name: x86_64-windows-proxy.7z
+        path: ./proxy.7z
