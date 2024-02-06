@@ -16,3 +16,5 @@ parking_lot = "0.12.1"
 serde = { version = "1.0.193", features = ["derive"] }
 rmp-serde = "1.1.2"
 toml = "0.8.8"
+log = { version = "0.4.20", features = ["serde", "release_max_level_debug", "std"] }
+simplelog = "0.12.1"

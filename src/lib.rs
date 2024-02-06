@@ -1,3 +1,4 @@
+#![allow(clippy::await_holding_lock)]
 use parking_lot::Mutex;
 use pso2packetlib::{
     ppac::Direction,
@@ -26,6 +27,7 @@ struct Settings {
     capture_folder: String,
     sega_key: String,
     user_key: String,
+    log_level: log::LevelFilter,
     #[serde(skip)]
     ip: SocketAddr,
 }
@@ -51,6 +53,7 @@ impl Default for Settings {
             capture_folder: "captures".into(),
             sega_key: "server_pubkey.pem".into(),
             user_key: "client_privkey.pem".into(),
+            log_level: log::LevelFilter::Debug,
             ip: "40.91.76.146:12180".parse().unwrap(),
         }
     }
@@ -71,10 +74,22 @@ pub struct Keys {
 
 pub async fn run() -> Result<(), Box<dyn Error>> {
     let mut settings = Settings::load("proxy.toml").await?;
-    settings.ip = tokio::net::lookup_host(&settings.ship_ip)
-        .await?
-        .next()
+    {
+        use simplelog::{ColorChoice, Config, TermLogger, TerminalMode};
+        TermLogger::init(
+            settings.log_level,
+            Config::default(),
+            TerminalMode::Mixed,
+            ColorChoice::Auto,
+        )
         .unwrap();
+    }
+    settings.ip = match tokio::net::lookup_host(&settings.ship_ip).await?.next() {
+        Some(ip) => ip,
+        None => {
+            return Err("No address found for the ship ip!".into());
+        }
+    };
     match std::fs::create_dir(&settings.capture_folder) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
@@ -83,7 +98,7 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
     match std::fs::metadata(&settings.user_key) {
         Ok(..) => {}
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            println!("No client keyfile found, creating...");
+            log::info!("No client keyfile found, creating...");
             let mut rand_gen = rand::thread_rng();
             let key = RsaPrivateKey::new(&mut rand_gen, 1024)?;
             key.write_pkcs8_pem_file(&settings.user_key, rsa::pkcs8::LineEnding::default())?;
@@ -95,7 +110,7 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
     match std::fs::metadata(&settings.sega_key) {
         Ok(..) => {}
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
-            eprintln!("{} not found", &settings.sega_key);
+            log::error!("{} not found", &settings.sega_key);
             return Ok(());
         }
         Err(e) => {
@@ -106,6 +121,7 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
     let listeners = Arc::new(Mutex::new(Listeners::default()));
     create_ship_listeners(listeners.clone(), settings.clone()).await?;
     tokio::spawn(make_keys(settings.clone()));
+    log::info!("Proxy started");
 
     loop {
         for ip in listeners.lock().to_open.drain(..) {
@@ -133,7 +149,7 @@ async fn create_ship_listeners(
             loop {
                 match listener.accept().await {
                     Ok((s, _)) => {
-                        tokio::spawn(handle_con(
+                        tokio::spawn(connection_handler(
                             s.into_std().unwrap(),
                             settings.clone(),
                             settings.ip,
@@ -141,7 +157,7 @@ async fn create_ship_listeners(
                         ));
                     }
                     Err(e) => {
-                        eprintln!("Failed to accept connection: {e}");
+                        log::error!("Failed to accept connection: {e}");
                         return;
                     }
                 }
@@ -163,7 +179,7 @@ async fn create_listener(
         loop {
             match listener.accept().await {
                 Ok((s, _)) => {
-                    tokio::spawn(handle_con(
+                    tokio::spawn(connection_handler(
                         s.into_std().unwrap(),
                         settings.clone(),
                         ip,
@@ -171,7 +187,7 @@ async fn create_listener(
                     ));
                 }
                 Err(e) => {
-                    eprintln!("Failed to accept connection: {e}");
+                    log::error!("Failed to accept connection: {e}");
                     return;
                 }
             }
@@ -188,20 +204,20 @@ async fn make_keys(settings: Arc<Settings>) -> io::Result<()> {
                 let _ = send_keys(s, settings.clone());
             }
             Err(e) => {
-                eprintln!("Failed to accept connection: {e}");
+                log::error!("Failed to accept connection: {e}");
                 return Err(e);
             }
         }
     }
 }
 
-async fn handle_con(
+async fn connection_handler(
     in_stream: std::net::TcpStream,
     settings: Arc<Settings>,
     address: SocketAddr,
     sockets: Arc<Mutex<Listeners>>,
 ) -> io::Result<()> {
-    println!("Got connection");
+    log::info!("Got connection");
     in_stream.set_nonblocking(true)?;
     in_stream.set_nodelay(true)?;
     in_stream.set_ttl(100)?;
@@ -248,10 +264,10 @@ async fn handle_con(
         {
             Ok(_) => {}
             Err(e) if e.kind() == io::ErrorKind::ConnectionAborted => {
-                println!("User disconnected");
+                log::info!("User disconnected");
                 return Ok(());
             }
-            Err(e) => return Err(e.into()),
+            Err(e) => return Err(e),
         }
         match read_packet(
             &mut serv_stream,
@@ -264,10 +280,10 @@ async fn handle_con(
         {
             Ok(_) => {}
             Err(e) if e.kind() == io::ErrorKind::ConnectionAborted => {
-                println!("User disconnected");
+                log::info!("User disconnected");
                 return Ok(());
             }
-            Err(e) => return Err(e.into()),
+            Err(e) => return Err(e),
         }
         let _ = client_stream.flush();
         let _ = serv_stream.flush();
@@ -323,8 +339,10 @@ fn parse_packet(
             _ => {}
         }
     } else if let ProxyPacket::ShipList(ships) = packet {
+        log::debug!("Got ship list");
         for ship in &mut ships.ships {
             let ip = ship.ip;
+            log::trace!("Parsing ship with id: {}, ip: {ip}", ship.id);
             let ship_id = ship.id / 1000;
             let port_offset = match ship_id {
                 1..=9 => ship_id * 100,
@@ -344,6 +362,7 @@ fn parse_packet(
 fn push_listener(sockets: &Mutex<Listeners>, address: SocketAddr) {
     let mut lock = sockets.lock();
     if !lock.open.contains(&address) {
+        log::debug!("Mapping {}:{}", address.ip(), address.port());
         lock.to_open.push((address, address.port()));
         lock.open.push(address);
         lock.opened_ports.push(address.port());
@@ -359,6 +378,7 @@ fn push_listener_var(sockets: &Mutex<Listeners>, address: SocketAddr) -> u16 {
             }
             port += 1;
         }
+        log::debug!("Mapping {}:{} <-> {port}", address.ip(), address.port());
         lock.to_open.push((address, port));
         lock.open.push(address);
         lock.opened_ports.push(port);
@@ -370,7 +390,13 @@ fn push_listener_var(sockets: &Mutex<Listeners>, address: SocketAddr) -> u16 {
             .enumerate()
             .find(|(_, &a)| a == address)
             .unwrap();
-        lock.opened_ports[pos]
+        let port = lock.opened_ports[pos];
+        log::debug!(
+            "Already mapped: {port} <-> {}:{}",
+            address.ip(),
+            address.port()
+        );
+        port
     }
 }
 
@@ -379,7 +405,7 @@ fn write_packet(id: u8, subid: u16, dir: Direction) {
         Direction::ToServer => "C->S",
         Direction::ToClient => "S->C",
     };
-    println!("{dir}: {id:X}, {subid:X}");
+    log::info!("{dir}: {id:X}, {subid:X}");
 }
 
 fn replace_balance(
