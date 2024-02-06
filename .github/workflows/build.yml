@@ -54,7 +54,7 @@ jobs:
       run: cargo build --target x86_64-pc-windows-gnu --release
     - name: Move build artifacts
       if: ${{ success() }}
-      run: mv target/x86_64-pc-windows-gnu/release/proxy .
+      run: mv target/x86_64-pc-windows-gnu/release/proxy.exe .
     - name: Pack build artifacts and extra data
       if: ${{ success() }}
       run: 7z a -mx9 proxy.7z proxy.exe proxy.toml
