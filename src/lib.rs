@@ -1,8 +1,8 @@
 use parking_lot::Mutex;
 use pso2packetlib::{
     ppac::Direction,
-    protocol::{Packet, PacketType},
-    Connection, PrivateKey, PublicKey,
+    protocol::{PacketType, ProxyPacket},
+    PrivateKey, ProxyConnection, PublicKey,
 };
 use rsa::{
     pkcs8::{DecodePrivateKey, EncodePrivateKey},
@@ -209,7 +209,7 @@ async fn handle_con(
         std::net::IpAddr::V4(x) => x,
         std::net::IpAddr::V6(_) => unimplemented!(),
     };
-    let mut client_stream = Connection::new(
+    let mut client_stream = ProxyConnection::new(
         in_stream,
         PacketType::NGS,
         PrivateKey::Path((&settings.user_key).into()),
@@ -219,7 +219,7 @@ async fn handle_con(
     serv_stream.set_nonblocking(true)?;
     serv_stream.set_nodelay(true)?;
     serv_stream.set_ttl(100)?;
-    let mut serv_stream = Connection::new(
+    let mut serv_stream = ProxyConnection::new(
         serv_stream,
         PacketType::NGS,
         PrivateKey::Path((&settings.user_key).into()),
@@ -276,8 +276,8 @@ async fn handle_con(
 }
 
 async fn read_packet(
-    in_conn: &mut Connection,
-    out_conn: &mut Connection,
+    in_conn: &mut ProxyConnection,
+    out_conn: &mut ProxyConnection,
     dir: u8,
     sockets: &Mutex<Listeners>,
     callback_ip: Ipv4Addr,
@@ -298,12 +298,12 @@ async fn read_packet(
 }
 
 fn parse_packet(
-    packet: &mut Packet,
+    packet: &mut ProxyPacket,
     dir: u8,
     sockets: &Mutex<Listeners>,
     callback_ip: Ipv4Addr,
 ) -> io::Result<()> {
-    if let Packet::Unknown(data) = packet {
+    if let ProxyPacket::Unknown(data) = packet {
         let id = data.0.id;
         let sub_id = data.0.subid;
         write_packet(id, sub_id, dir);
@@ -322,7 +322,7 @@ fn parse_packet(
             (0x11, 0x21) => replace_shareship(&mut data.1[..], sockets, callback_ip)?,
             _ => {}
         }
-    } else if let Packet::ShipList(ships) = packet {
+    } else if let ProxyPacket::ShipList(ships) = packet {
         for ship in &mut ships.ships {
             let ip = ship.ip;
             let global_port = (12081 + (ship.id / 10 % 1000)) as u16;
