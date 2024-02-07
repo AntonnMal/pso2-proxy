@@ -1,9 +1,8 @@
 #![allow(clippy::await_holding_lock)]
-use parking_lot::Mutex;
 use pso2packetlib::{
     ppac::Direction,
     protocol::{PacketType, ProxyPacket},
-    PrivateKey, ProxyConnection, PublicKey,
+    PrivateKey, ProxyConnection, ProxyRead, ProxyWrite, PublicKey,
 };
 use rsa::{
     pkcs8::{DecodePrivateKey, EncodePrivateKey},
@@ -18,7 +17,11 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Mutex;
+use tokio::{
+    net::{TcpListener, TcpStream},
+    sync::mpsc::Sender,
+};
 
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
@@ -59,9 +62,8 @@ impl Default for Settings {
     }
 }
 
-#[derive(Default)]
 struct Listeners {
-    to_open: Vec<(SocketAddr, u16)>,
+    to_open: Sender<(SocketAddr, u16)>,
     open: Vec<SocketAddr>,
     opened_ports: Vec<u16>,
 }
@@ -118,17 +120,20 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
         }
     }
     let settings = Arc::new(settings);
-    let listeners = Arc::new(Mutex::new(Listeners::default()));
+    let (send, mut recv) = tokio::sync::mpsc::channel(10);
+    let listeners = Arc::new(Mutex::new(Listeners {
+        to_open: send,
+        open: vec![],
+        opened_ports: vec![],
+    }));
     create_ship_listeners(listeners.clone(), settings.clone()).await?;
     tokio::spawn(make_keys(settings.clone()));
     log::info!("Proxy started");
 
-    loop {
-        for ip in listeners.lock().to_open.drain(..) {
-            create_listener(listeners.clone(), settings.clone(), ip.0, ip.1).await?;
-        }
-        tokio::time::sleep(Duration::from_secs(1)).await;
+    while let Some((ip, port)) = recv.recv().await {
+        create_listener(listeners.clone(), settings.clone(), ip, port).await?;
     }
+    Ok(())
 }
 
 async fn create_ship_listeners(
@@ -201,7 +206,7 @@ async fn make_keys(settings: Arc<Settings>) -> io::Result<()> {
     loop {
         match listener.accept().await {
             Ok((s, _)) => {
-                let _ = send_keys(s, settings.clone());
+                let _ = send_keys(s, settings.clone()).await;
             }
             Err(e) => {
                 log::error!("Failed to accept connection: {e}");
@@ -221,11 +226,11 @@ async fn connection_handler(
     in_stream.set_nonblocking(true)?;
     in_stream.set_nodelay(true)?;
     in_stream.set_ttl(100)?;
-    let callback_ip = match in_stream.local_addr()?.ip() {
+    let local_ip = match in_stream.local_addr()?.ip() {
         std::net::IpAddr::V4(x) => x,
         std::net::IpAddr::V6(_) => unimplemented!(),
     };
-    let mut client_stream = ProxyConnection::new(
+    let client_stream = ProxyConnection::new(
         in_stream,
         PacketType::NGS,
         PrivateKey::Path((&settings.user_key).into()),
@@ -251,69 +256,77 @@ async fn connection_handler(
         ),
         Direction::ToServer,
     )?;
+    let (client_read, client_write) = client_stream.into_split()?;
+    let (server_read, server_write) = serv_stream.into_split()?;
 
+    tokio::spawn(handle_loop(
+        client_read,
+        server_write,
+        Direction::ToServer,
+        sockets.clone(),
+        local_ip,
+    ));
+    tokio::spawn(handle_loop(
+        server_read,
+        client_write,
+        Direction::ToClient,
+        sockets,
+        local_ip,
+    ));
+
+    Ok(())
+}
+
+async fn handle_loop(
+    mut read: ProxyRead,
+    mut write: ProxyWrite,
+    dir: Direction,
+    sockets: Arc<Mutex<Listeners>>,
+    callback_ip: Ipv4Addr,
+) {
     loop {
-        match read_packet(
-            &mut client_stream,
-            &mut serv_stream,
-            Direction::ToServer,
-            &sockets,
-            callback_ip,
-        )
-        .await
-        {
-            Ok(_) => {}
-            Err(e) if e.kind() == io::ErrorKind::ConnectionAborted => {
-                log::info!("User disconnected");
-                return Ok(());
+        let read_future = read_packet(&mut read, &mut write, dir, &sockets, callback_ip);
+
+        // this future has a timeout so we can flush the data periodically
+        match tokio::time::timeout(Duration::from_millis(100), read_future).await {
+            Ok(Ok(_)) => {}
+            Err(_) => {}
+            Ok(Err(e)) if e.kind() == io::ErrorKind::ConnectionAborted => {
+                if matches!(dir, Direction::ToClient) {
+                    log::info!("User disconnected");
+                }
+                return;
             }
-            Err(e) => return Err(e),
-        }
-        match read_packet(
-            &mut serv_stream,
-            &mut client_stream,
-            Direction::ToClient,
-            &sockets,
-            callback_ip,
-        )
-        .await
-        {
-            Ok(_) => {}
-            Err(e) if e.kind() == io::ErrorKind::ConnectionAborted => {
-                log::info!("User disconnected");
-                return Ok(());
+            Ok(Err(e)) => {
+                log::error!("Failed to read data: {e}");
+                return;
             }
-            Err(e) => return Err(e),
         }
-        let _ = client_stream.flush();
-        let _ = serv_stream.flush();
-        tokio::time::sleep(Duration::from_millis(1)).await;
+        let _ = write.flush().await;
     }
 }
 
 async fn read_packet(
-    in_conn: &mut ProxyConnection,
-    out_conn: &mut ProxyConnection,
+    in_conn: &mut ProxyRead,
+    out_conn: &mut ProxyWrite,
     dir: Direction,
     sockets: &Mutex<Listeners>,
     callback_ip: Ipv4Addr,
 ) -> io::Result<()> {
-    match in_conn.read_packet() {
+    match in_conn.read_packet().await {
         Ok(mut packet) => {
-            parse_packet(&mut packet, dir, sockets, callback_ip)?;
-            match out_conn.write_packet(&packet) {
+            parse_packet(&mut packet, dir, sockets, callback_ip).await?;
+            match out_conn.write_packet(&packet).await {
                 Ok(_) => {}
-                Err(x) if x.kind() == io::ErrorKind::WouldBlock => {}
                 Err(x) => return Err(x),
             }
         }
-        Err(x) if x.kind() == io::ErrorKind::WouldBlock => {}
         Err(x) => return Err(x),
     }
     Ok(())
 }
 
-fn parse_packet(
+async fn parse_packet(
     packet: &mut ProxyPacket,
     dir: Direction,
     sockets: &Mutex<Listeners>,
@@ -325,17 +338,17 @@ fn parse_packet(
         write_packet(id, sub_id, dir);
         match (id, sub_id) {
             // block balance
-            (0x11, 0x2C) => replace_balance(&mut data.1[..], sockets, callback_ip)?,
+            (0x11, 0x2C) => replace_balance(&mut data.1[..], sockets, callback_ip).await?,
             // block switch packet
-            (0x11, 0x13) => replace_pso2(&mut data.1[..], sockets, callback_ip)?,
+            (0x11, 0x13) => replace_pso2(&mut data.1[..], sockets, callback_ip).await?,
             // personal quarters
-            (0x11, 0x17) => replace_pq(&mut data.1[..], sockets, callback_ip)?,
+            (0x11, 0x17) => replace_pq(&mut data.1[..], sockets, callback_ip).await?,
             // alliance quarters
-            (0x11, 0x4F) => replace_aq(&mut data.1[..], sockets, callback_ip)?,
+            (0x11, 0x4F) => replace_aq(&mut data.1[..], sockets, callback_ip).await?,
             // creative space
-            (0x11, 0x121) => replace_cc(&mut data.1[..], sockets, callback_ip)?,
+            (0x11, 0x121) => replace_cc(&mut data.1[..], sockets, callback_ip).await?,
             // shared ship
-            (0x11, 0x21) => replace_shareship(&mut data.1[..], sockets, callback_ip)?,
+            (0x11, 0x21) => replace_shareship(&mut data.1[..], sockets, callback_ip).await?,
             _ => {}
         }
     } else if let ProxyPacket::ShipList(ships) = packet {
@@ -350,26 +363,26 @@ fn parse_packet(
                 _ => continue,
             };
             let global_port = (12081 + port_offset) as u16;
-            push_listener(sockets, SocketAddr::from((ip, global_port)));
+            push_listener(sockets, SocketAddr::from((ip, global_port))).await;
             let jp_port = (12000 + port_offset) as u16;
-            push_listener(sockets, SocketAddr::from((ip, jp_port)));
+            push_listener(sockets, SocketAddr::from((ip, jp_port))).await;
             ship.ip = callback_ip;
         }
     }
     Ok(())
 }
 
-fn push_listener(sockets: &Mutex<Listeners>, address: SocketAddr) {
-    let mut lock = sockets.lock();
+async fn push_listener(sockets: &Mutex<Listeners>, address: SocketAddr) {
+    let mut lock = sockets.lock().await;
     if !lock.open.contains(&address) {
         log::debug!("Mapping {}:{}", address.ip(), address.port());
-        lock.to_open.push((address, address.port()));
+        let _ = lock.to_open.send((address, address.port())).await;
         lock.open.push(address);
         lock.opened_ports.push(address.port());
     }
 }
-fn push_listener_var(sockets: &Mutex<Listeners>, address: SocketAddr) -> u16 {
-    let mut lock = sockets.lock();
+async fn push_listener_var(sockets: &Mutex<Listeners>, address: SocketAddr) -> u16 {
+    let mut lock = sockets.lock().await;
     if !lock.open.contains(&address) {
         let mut port = address.port();
         loop {
@@ -379,7 +392,7 @@ fn push_listener_var(sockets: &Mutex<Listeners>, address: SocketAddr) -> u16 {
             port += 1;
         }
         log::debug!("Mapping {}:{} <-> {port}", address.ip(), address.port());
-        lock.to_open.push((address, port));
+        let _ = lock.to_open.send((address, port)).await;
         lock.open.push(address);
         lock.opened_ports.push(port);
         port
@@ -408,7 +421,7 @@ fn write_packet(id: u8, subid: u16, dir: Direction) {
     log::info!("{dir}: {id:X}, {subid:X}");
 }
 
-fn replace_balance(
+async fn replace_balance(
     buff: &mut [u8],
     sockets: &Mutex<Listeners>,
     callback_ip: Ipv4Addr,
@@ -422,13 +435,13 @@ fn replace_balance(
     change_data.write_all(&callback_ip.octets())?;
     change_data.read_exact(&mut port)?;
     let port = u16::from_le_bytes(port);
-    let port = push_listener_var(sockets, SocketAddr::from((ip, port)));
+    let port = push_listener_var(sockets, SocketAddr::from((ip, port))).await;
     change_data.seek(SeekFrom::Current(-2))?;
     change_data.write_all(&port.to_le_bytes())?;
     Ok(())
 }
 
-fn replace_pso2(
+async fn replace_pso2(
     buff: &mut [u8],
     sockets: &Mutex<Listeners>,
     callback_ip: Ipv4Addr,
@@ -442,13 +455,13 @@ fn replace_pso2(
     change_data.write_all(&callback_ip.octets())?;
     change_data.read_exact(&mut port)?;
     let port = u16::from_le_bytes(port);
-    let port = push_listener_var(sockets, SocketAddr::from((ip, port)));
+    let port = push_listener_var(sockets, SocketAddr::from((ip, port))).await;
     change_data.seek(SeekFrom::Current(-2))?;
     change_data.write_all(&port.to_le_bytes())?;
     Ok(())
 }
 
-fn replace_pq(
+async fn replace_pq(
     buff: &mut [u8],
     sockets: &Mutex<Listeners>,
     callback_ip: Ipv4Addr,
@@ -463,13 +476,13 @@ fn replace_pq(
     change_data.set_position(0x20);
     change_data.read_exact(&mut port)?;
     let port = u16::from_le_bytes(port);
-    let port = push_listener_var(sockets, SocketAddr::from((ip, port)));
+    let port = push_listener_var(sockets, SocketAddr::from((ip, port))).await;
     change_data.seek(SeekFrom::Current(-2))?;
     change_data.write_all(&port.to_le_bytes())?;
     Ok(())
 }
 
-fn replace_aq(
+async fn replace_aq(
     buff: &mut [u8],
     sockets: &Mutex<Listeners>,
     callback_ip: Ipv4Addr,
@@ -484,13 +497,13 @@ fn replace_aq(
     change_data.set_position(0x20);
     change_data.read_exact(&mut port)?;
     let port = u16::from_le_bytes(port);
-    let port = push_listener_var(sockets, SocketAddr::from((ip, port)));
+    let port = push_listener_var(sockets, SocketAddr::from((ip, port))).await;
     change_data.seek(SeekFrom::Current(-2))?;
     change_data.write_all(&port.to_le_bytes())?;
     Ok(())
 }
 
-fn replace_cc(
+async fn replace_cc(
     buff: &mut [u8],
     sockets: &Mutex<Listeners>,
     callback_ip: Ipv4Addr,
@@ -505,13 +518,13 @@ fn replace_cc(
     change_data.set_position(0x20);
     change_data.read_exact(&mut port)?;
     let port = u16::from_le_bytes(port);
-    let port = push_listener_var(sockets, SocketAddr::from((ip, port)));
+    let port = push_listener_var(sockets, SocketAddr::from((ip, port))).await;
     change_data.seek(SeekFrom::Current(-2))?;
     change_data.write_all(&port.to_le_bytes())?;
     Ok(())
 }
 
-fn replace_shareship(
+async fn replace_shareship(
     buff: &mut [u8],
     sockets: &Mutex<Listeners>,
     callback_ip: Ipv4Addr,
@@ -525,14 +538,14 @@ fn replace_shareship(
     change_data.write_all(&callback_ip.octets())?;
     change_data.read_exact(&mut port)?;
     let port = u16::from_le_bytes(port);
-    let port = push_listener_var(sockets, SocketAddr::from((ip, port)));
+    let port = push_listener_var(sockets, SocketAddr::from((ip, port))).await;
     change_data.seek(SeekFrom::Current(-2))?;
     change_data.write_all(&port.to_le_bytes())?;
     Ok(())
 }
 
-fn send_keys(stream: TcpStream, settings: Arc<Settings>) -> Result<(), Box<dyn Error>> {
-    let mut stream = stream.into_std()?;
+async fn send_keys(mut stream: TcpStream, settings: Arc<Settings>) -> Result<(), Box<dyn Error>> {
+    use tokio::io::AsyncWriteExt;
     stream.set_nodelay(true)?;
     let IpAddr::V4(ip) = stream.local_addr()?.ip() else {
         unimplemented!()
@@ -552,9 +565,9 @@ fn send_keys(stream: TcpStream, settings: Arc<Settings>) -> Result<(), Box<dyn E
         data.push(Keys { ip, key })
     }
     let mut data = rmp_serde::to_vec(&data)?;
-    let mut out_data = Vec::with_capacity(data.len());
+    let mut out_data = Vec::with_capacity(data.len() + 4);
     out_data.append(&mut (data.len() as u32).to_le_bytes().to_vec());
     out_data.append(&mut data);
-    stream.write_all(&out_data)?;
+    stream.write_all(&out_data).await?;
     Ok(())
 }

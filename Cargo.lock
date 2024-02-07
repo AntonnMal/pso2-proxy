@@ -107,6 +107,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
+name = "bytes"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2bd12c1caf447e69cd4528f47f94d203fd2582878ecb9e9465484c4148a8223"
+
+[[package]]
 name = "cbc"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -512,7 +518,7 @@ checksum = "dd8b5dd2ae5ed71462c540258bedcb51965123ad7e7ccf4b9a8cafaa4a63576d"
 [[package]]
 name = "packetlib_impl"
 version = "0.1.0"
-source = "git+https://github.com/PhantasyServer/pso2-protocol-lib?rev=fc85689#fc8568936078704469c2395a0e2dc35e383b09c3"
+source = "git+https://github.com/PhantasyServer/pso2-protocol-lib?rev=f4232ce#f4232ce3d70863a2408dcd951f4e35b54833c780"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -631,7 +637,7 @@ dependencies = [
 [[package]]
 name = "pso2packetlib"
 version = "0.1.0"
-source = "git+https://github.com/PhantasyServer/pso2-protocol-lib?rev=fc85689#fc8568936078704469c2395a0e2dc35e383b09c3"
+source = "git+https://github.com/PhantasyServer/pso2-protocol-lib?rev=f4232ce#f4232ce3d70863a2408dcd951f4e35b54833c780"
 dependencies = [
  "aes",
  "byteorder",
@@ -642,6 +648,7 @@ dependencies = [
  "rand",
  "rsa",
  "sha2",
+ "tokio",
  "zstd",
 ]
 
@@ -901,11 +908,12 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "1.34.0"
+version = "1.36.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0c014766411e834f7af5b8f4cf46257aab4036ca95e9d2c144a10f59ad6f5b9"
+checksum = "61285f6515fa018fb2d1e46eb21223fff441ee8db5d0f1435e8ab4f5cdb80931"
 dependencies = [
  "backtrace",
+ "bytes",
  "libc",
  "mio",
  "num_cpus",
