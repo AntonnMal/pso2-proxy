@@ -155,7 +155,7 @@ async fn create_ship_listeners(
                 match listener.accept().await {
                     Ok((s, _)) => {
                         tokio::spawn(connection_handler(
-                            s.into_std().unwrap(),
+                            s,
                             settings.clone(),
                             settings.ip,
                             sockets.clone(),
@@ -184,12 +184,7 @@ async fn create_listener(
         loop {
             match listener.accept().await {
                 Ok((s, _)) => {
-                    tokio::spawn(connection_handler(
-                        s.into_std().unwrap(),
-                        settings.clone(),
-                        ip,
-                        sockets.clone(),
-                    ));
+                    tokio::spawn(connection_handler(s, settings.clone(), ip, sockets.clone()));
                 }
                 Err(e) => {
                     log::error!("Failed to accept connection: {e}");
@@ -217,20 +212,19 @@ async fn make_keys(settings: Arc<Settings>) -> io::Result<()> {
 }
 
 async fn connection_handler(
-    in_stream: std::net::TcpStream,
+    in_stream: TcpStream,
     settings: Arc<Settings>,
     address: SocketAddr,
     sockets: Arc<Mutex<Listeners>>,
 ) -> io::Result<()> {
     log::info!("Got connection");
-    in_stream.set_nonblocking(true)?;
     in_stream.set_nodelay(true)?;
     in_stream.set_ttl(100)?;
     let local_ip = match in_stream.local_addr()?.ip() {
         std::net::IpAddr::V4(x) => x,
         std::net::IpAddr::V6(_) => unimplemented!(),
     };
-    let client_stream = ProxyConnection::new(
+    let client_stream = ProxyConnection::new_async(
         in_stream,
         PacketType::NGS,
         PrivateKey::Path((&settings.user_key).into()),
@@ -288,10 +282,15 @@ async fn handle_loop(
         let read_future = read_packet(&mut read, &mut write, dir, &sockets, callback_ip);
 
         // this future has a timeout so we can flush the data periodically
-        match tokio::time::timeout(Duration::from_millis(100), read_future).await {
+        match tokio::time::timeout(Duration::from_millis(10000), read_future).await {
             Ok(Ok(_)) => {}
             Err(_) => {}
-            Ok(Err(e)) if e.kind() == io::ErrorKind::ConnectionAborted => {
+            Ok(Err(e))
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::ConnectionAborted | io::ErrorKind::ConnectionReset
+                ) =>
+            {
                 if matches!(dir, Direction::ToClient) {
                     log::info!("User disconnected");
                 }
@@ -302,7 +301,7 @@ async fn handle_loop(
                 return;
             }
         }
-        let _ = write.flush().await;
+        let _ = write.flush_async().await;
     }
 }
 
@@ -313,10 +312,10 @@ async fn read_packet(
     sockets: &Mutex<Listeners>,
     callback_ip: Ipv4Addr,
 ) -> io::Result<()> {
-    match in_conn.read_packet().await {
+    match in_conn.read_packet_async().await {
         Ok(mut packet) => {
             parse_packet(&mut packet, dir, sockets, callback_ip).await?;
-            match out_conn.write_packet(&packet).await {
+            match out_conn.write_packet_async(&packet).await {
                 Ok(_) => {}
                 Err(x) => return Err(x),
             }
