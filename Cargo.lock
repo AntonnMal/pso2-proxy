@@ -518,7 +518,7 @@ checksum = "dd8b5dd2ae5ed71462c540258bedcb51965123ad7e7ccf4b9a8cafaa4a63576d"
 [[package]]
 name = "packetlib_impl"
 version = "0.1.0"
-source = "git+https://github.com/PhantasyServer/pso2-protocol-lib?rev=d824e24#d824e245771c4b0775b8a02170211d5bd7110da7"
+source = "git+https://github.com/PhantasyServer/pso2-protocol-lib?rev=e7b33f8#e7b33f878884556a2acb19ab4803581bf2bb4a6a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -637,7 +637,7 @@ dependencies = [
 [[package]]
 name = "pso2packetlib"
 version = "0.1.0"
-source = "git+https://github.com/PhantasyServer/pso2-protocol-lib?rev=d824e24#d824e245771c4b0775b8a02170211d5bd7110da7"
+source = "git+https://github.com/PhantasyServer/pso2-protocol-lib?rev=e7b33f8#e7b33f878884556a2acb19ab4803581bf2bb4a6a"
 dependencies = [
  "aes",
  "byteorder",

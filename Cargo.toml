@@ -11,7 +11,7 @@ rand = "0.8.5"
 rsa = "0.9.6"
 tokio = {version = "1.36.0", features = ["net", "rt-multi-thread", "macros", "time", "fs", "io-util"] }
 # pso2packetlib = {path = "../pso2packetlib", features = ["connection", "ngs_enc", "proxy", "ppac", "tokio", "split_connection"]}
-pso2packetlib = { git = "https://github.com/PhantasyServer/pso2-protocol-lib", rev = "d824e24", features = ["split_connection", "ngs_enc", "proxy", "ppac", "tokio"] }
+pso2packetlib = { git = "https://github.com/PhantasyServer/pso2-protocol-lib", rev = "e7b33f8", features = ["split_connection", "ngs_enc", "proxy", "ppac", "tokio"] }
 parking_lot = "0.12.1"
 serde = { version = "1.0.193", features = ["derive"] }
 rmp-serde = "1.1.2"
