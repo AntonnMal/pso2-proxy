@@ -1,8 +1,9 @@
 #![allow(clippy::await_holding_lock)]
 use pso2packetlib::{
+    connection::{ConnectionRead, ConnectionWrite},
     ppac::Direction,
     protocol::{PacketType, ProxyPacket},
-    PrivateKey, ProxyConnection, ProxyRead, ProxyWrite, PublicKey,
+    Connection, PrivateKey, PublicKey,
 };
 use rsa::{
     pkcs8::{DecodePrivateKey, EncodePrivateKey},
@@ -224,7 +225,7 @@ async fn connection_handler(
         std::net::IpAddr::V4(x) => x,
         std::net::IpAddr::V6(_) => unimplemented!(),
     };
-    let client_stream = ProxyConnection::new_async(
+    let client_stream = Connection::<ProxyPacket>::new_async(
         in_stream,
         PacketType::NGS,
         PrivateKey::Path((&settings.user_key).into()),
@@ -234,7 +235,7 @@ async fn connection_handler(
     serv_stream.set_nonblocking(true)?;
     serv_stream.set_nodelay(true)?;
     serv_stream.set_ttl(100)?;
-    let mut serv_stream = ProxyConnection::new(
+    let mut serv_stream = Connection::<ProxyPacket>::new(
         serv_stream,
         PacketType::NGS,
         PrivateKey::Path((&settings.user_key).into()),
@@ -272,8 +273,8 @@ async fn connection_handler(
 }
 
 async fn handle_loop(
-    mut read: ProxyRead,
-    mut write: ProxyWrite,
+    mut read: ConnectionRead<ProxyPacket>,
+    mut write: ConnectionWrite,
     dir: Direction,
     sockets: Arc<Mutex<Listeners>>,
     callback_ip: Ipv4Addr,
@@ -306,8 +307,8 @@ async fn handle_loop(
 }
 
 async fn read_packet(
-    in_conn: &mut ProxyRead,
-    out_conn: &mut ProxyWrite,
+    in_conn: &mut ConnectionRead<ProxyPacket>,
+    out_conn: &mut ConnectionWrite,
     dir: Direction,
     sockets: &Mutex<Listeners>,
     callback_ip: Ipv4Addr,
