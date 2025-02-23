@@ -1,9 +1,12 @@
 #![allow(clippy::await_holding_lock)]
 use pso2packetlib::{
-    connection::{ConnectionRead, ConnectionWrite},
+    connection::{ConnectionError, ConnectionRead, ConnectionWrite},
     ppac::Direction,
-    protocol::{PacketType, ProxyPacket},
-    Connection, PrivateKey, PublicKey,
+    protocol::{
+        login::{EncryptionRequestPacket, EncryptionResponsePacket, ShipListPacket},
+        PacketHeader, PacketType,
+    },
+    Connection, PrivateKey, ProtocolRW, PublicKey,
 };
 use rsa::{
     pkcs8::{DecodePrivateKey, EncodePrivateKey},
@@ -23,6 +26,44 @@ use tokio::{
     net::{TcpListener, TcpStream},
     sync::mpsc::Sender,
 };
+
+#[derive(Debug, Default, Clone, PartialEq, ProtocolRW)]
+/// Minimal packet definitions for proxies
+pub enum ProxyPacket {
+    #[default]
+    #[Empty]
+    None,
+    #[Id(0x11, 0x0B)]
+    EncryptionRequest(EncryptionRequestPacket),
+    #[Id(0x11, 0x0C)]
+    EncryptionResponse(EncryptionResponsePacket),
+    #[Id(0x11, 0x3D)]
+    ShipList(ShipListPacket),
+    #[Raw]
+    Raw(Vec<u8>),
+    #[Unknown]
+    Unknown((PacketHeader, Vec<u8>)),
+}
+
+impl pso2packetlib::protocol::PacketEncryption for ProxyPacket {
+    fn is_enc_data(&self) -> bool {
+        matches!(self, Self::EncryptionRequest(_))
+    }
+    fn as_enc_data(&self) -> Option<&[u8]> {
+        if let Self::EncryptionRequest(data) = self {
+            Some(&data.rsa_data)
+        } else {
+            None
+        }
+    }
+    fn mut_enc_data(&mut self) -> Option<&mut Vec<u8>> {
+        if let Self::EncryptionRequest(data) = self {
+            Some(&mut data.rsa_data)
+        } else {
+            None
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 #[serde(default)]
@@ -217,7 +258,7 @@ async fn connection_handler(
     settings: Arc<Settings>,
     address: SocketAddr,
     sockets: Arc<Mutex<Listeners>>,
-) -> io::Result<()> {
+) -> Result<(), ConnectionError> {
     log::info!("Got connection");
     in_stream.set_nodelay(true)?;
     in_stream.set_ttl(100)?;
@@ -286,7 +327,7 @@ async fn handle_loop(
         match tokio::time::timeout(Duration::from_millis(10000), read_future).await {
             Ok(Ok(_)) => {}
             Err(_) => {}
-            Ok(Err(e))
+            Ok(Err(ConnectionError::Io(e)))
                 if matches!(
                     e.kind(),
                     io::ErrorKind::ConnectionAborted | io::ErrorKind::ConnectionReset
@@ -312,7 +353,7 @@ async fn read_packet(
     dir: Direction,
     sockets: &Mutex<Listeners>,
     callback_ip: Ipv4Addr,
-) -> io::Result<()> {
+) -> Result<(), ConnectionError> {
     match in_conn.read_packet_async().await {
         Ok(mut packet) => {
             parse_packet(&mut packet, dir, sockets, callback_ip).await?;
