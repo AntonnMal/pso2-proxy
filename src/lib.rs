@@ -73,8 +73,16 @@ struct Settings {
     sega_key: String,
     user_key: String,
     log_level: log::LevelFilter,
+    dropped_ids: Vec<IgnoreId>,
     #[serde(skip)]
     ip: SocketAddr,
+}
+
+#[derive(Serialize, Deserialize, Default, PartialEq)]
+#[serde(default)]
+struct IgnoreId {
+    id: u8,
+    subid: u16,
 }
 
 impl Settings {
@@ -99,6 +107,7 @@ impl Default for Settings {
             sega_key: "server_pubkey.pem".into(),
             user_key: "client_privkey.pem".into(),
             log_level: log::LevelFilter::Debug,
+            dropped_ids: vec![],
             ip: "40.91.76.146:12180".parse().unwrap(),
         }
     }
@@ -298,6 +307,7 @@ async fn connection_handler(
     tokio::spawn(handle_loop(
         client_read,
         server_write,
+        Arc::clone(&settings),
         Direction::ToServer,
         sockets.clone(),
         local_ip,
@@ -305,6 +315,7 @@ async fn connection_handler(
     tokio::spawn(handle_loop(
         server_read,
         client_write,
+        settings,
         Direction::ToClient,
         sockets,
         local_ip,
@@ -316,12 +327,13 @@ async fn connection_handler(
 async fn handle_loop(
     mut read: ConnectionRead<ProxyPacket>,
     mut write: ConnectionWrite,
+    settings: Arc<Settings>,
     dir: Direction,
     sockets: Arc<Mutex<Listeners>>,
     callback_ip: Ipv4Addr,
 ) {
     loop {
-        let read_future = read_packet(&mut read, &mut write, dir, &sockets, callback_ip);
+        let read_future = read_packet(&mut read, &mut write, &settings, dir, &sockets, callback_ip);
 
         // this future has a timeout so we can flush the data periodically
         match tokio::time::timeout(Duration::from_millis(10000), read_future).await {
@@ -350,13 +362,14 @@ async fn handle_loop(
 async fn read_packet(
     in_conn: &mut ConnectionRead<ProxyPacket>,
     out_conn: &mut ConnectionWrite,
+    settings: &Settings,
     dir: Direction,
     sockets: &Mutex<Listeners>,
     callback_ip: Ipv4Addr,
 ) -> Result<(), ConnectionError> {
     match in_conn.read_packet_async().await {
         Ok(mut packet) => {
-            parse_packet(&mut packet, dir, sockets, callback_ip).await?;
+            parse_packet(&mut packet, settings, dir, sockets, callback_ip).await?;
             match out_conn.write_packet_async(&packet).await {
                 Ok(_) => {}
                 Err(x) => return Err(x),
@@ -369,6 +382,7 @@ async fn read_packet(
 
 async fn parse_packet(
     packet: &mut ProxyPacket,
+    settings: &Settings,
     dir: Direction,
     sockets: &Mutex<Listeners>,
     callback_ip: Ipv4Addr,
@@ -376,7 +390,20 @@ async fn parse_packet(
     if let ProxyPacket::Unknown(data) = packet {
         let id = data.0.id;
         let sub_id = data.0.subid;
-        write_packet(id, sub_id, dir);
+        let dir = match dir {
+            Direction::ToServer => "C->S",
+            Direction::ToClient => "S->C",
+        };
+
+        let check_drop = IgnoreId { id, subid: sub_id };
+        if settings.dropped_ids.contains(&check_drop) {
+            *packet = ProxyPacket::None;
+            log::info!("{dir}: {id:X}, {sub_id:X} (dropped)");
+            return Ok(());
+        } else {
+            log::info!("{dir}: {id:X}, {sub_id:X}");
+        }
+
         match (id, sub_id) {
             // block balance
             (0x11, 0x2C) => replace_balance(&mut data.1[..], sockets, callback_ip).await?,
@@ -452,14 +479,6 @@ async fn push_listener_var(sockets: &Mutex<Listeners>, address: SocketAddr) -> u
         );
         port
     }
-}
-
-fn write_packet(id: u8, subid: u16, dir: Direction) {
-    let dir = match dir {
-        Direction::ToServer => "C->S",
-        Direction::ToClient => "S->C",
-    };
-    log::info!("{dir}: {id:X}, {subid:X}");
 }
 
 async fn replace_balance(

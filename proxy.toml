@@ -3,3 +3,7 @@ capture_folder = "captures"
 sega_key = "server_pubkey.pem"
 user_key = "client_privkey.pem"
 log_level = "DEBUG"
+
+# [[dropped_ids]]
+# id = 0x4
+# subid = 0x24
