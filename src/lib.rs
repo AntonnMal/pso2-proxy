@@ -192,11 +192,14 @@ async fn create_ship_listeners(
     settings: Arc<Settings>,
 ) -> Result<(), Box<dyn Error>> {
     let mut listeners = vec![];
+    let mut sockets_lock = sockets.lock().await;
     for i in 0..10 {
         // jp ports
         listeners.push(TcpListener::bind(("0.0.0.0", 12099 + (i * 100))).await?);
+        sockets_lock.opened_ports.push(12099 + (i * 100));
         // global ports
         listeners.push(TcpListener::bind(("0.0.0.0", 12080 + (i * 100))).await?);
+        sockets_lock.opened_ports.push(12080 + (i * 100));
     }
     for listener in listeners {
         let sockets = sockets.clone();
