@@ -194,11 +194,16 @@ async fn create_ship_listeners(
     let mut listeners = vec![];
     let mut sockets_lock = sockets.lock().await;
     for i in 0..10 {
+        let mut addr = settings.ip;
         // jp ports
         listeners.push(TcpListener::bind(("0.0.0.0", 12099 + (i * 100))).await?);
+        addr.set_port(12099 + (i * 100));
+        sockets_lock.open.push(addr);
         sockets_lock.opened_ports.push(12099 + (i * 100));
         // global ports
         listeners.push(TcpListener::bind(("0.0.0.0", 12080 + (i * 100))).await?);
+        addr.set_port(12080 + (i * 100));
+        sockets_lock.open.push(addr);
         sockets_lock.opened_ports.push(12080 + (i * 100));
     }
     for listener in listeners {
