@@ -497,7 +497,7 @@ async fn replace_balance(
     let mut change_data = Cursor::new(buff);
     let mut ip = [0u8; 4];
     let mut port = [0u8; 2];
-    change_data.set_position(0x60);
+    change_data.set_position(0x64);
     change_data.read_exact(&mut ip)?;
     change_data.seek(SeekFrom::Current(-4))?;
     change_data.write_all(&callback_ip.octets())?;
