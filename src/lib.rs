@@ -426,7 +426,7 @@ async fn parse_packet(
             // shared ship
             (0x11, 0x21) => replace_shareship(&mut data.1[..], sockets, callback_ip).await?,
             // shared ship creative space
-            (0x11, 0x14E) => replace_shareship(&mut data.1[..], sockets, callback_ip).await?,
+            (0x11, 0x14E) => replace_shareshipcc(&mut data.1[..], sockets, callback_ip).await?,
             _ => {}
         }
     } else if let ProxyPacket::ShipList(ships) = packet {
