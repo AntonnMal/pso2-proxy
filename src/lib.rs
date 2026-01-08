@@ -425,6 +425,8 @@ async fn parse_packet(
             (0x11, 0x121) => replace_cc(&mut data.1[..], sockets, callback_ip).await?,
             // shared ship
             (0x11, 0x21) => replace_shareship(&mut data.1[..], sockets, callback_ip).await?,
+            // shared ship creative space
+            (0x11, 0x14E) => replace_shareship(&mut data.1[..], sockets, callback_ip).await?,
             _ => {}
         }
     } else if let ProxyPacket::ShipList(ships) = packet {
@@ -601,6 +603,26 @@ async fn replace_shareship(
     let mut ip = [0u8; 4];
     let mut port = [0u8; 2];
     change_data.set_position(0x0);
+    change_data.read_exact(&mut ip)?;
+    change_data.seek(SeekFrom::Current(-4))?;
+    change_data.write_all(&callback_ip.octets())?;
+    change_data.read_exact(&mut port)?;
+    let port = u16::from_le_bytes(port);
+    let port = push_listener_var(sockets, SocketAddr::from((ip, port))).await;
+    change_data.seek(SeekFrom::Current(-2))?;
+    change_data.write_all(&port.to_le_bytes())?;
+    Ok(())
+}
+
+async fn replace_shareshipcc(
+    buff: &mut [u8],
+    sockets: &Mutex<Listeners>,
+    callback_ip: Ipv4Addr,
+) -> io::Result<()> {
+    let mut change_data = Cursor::new(buff);
+    let mut ip = [0u8; 4];
+    let mut port = [0u8; 2];
+    change_data.set_position(0x24);
     change_data.read_exact(&mut ip)?;
     change_data.seek(SeekFrom::Current(-4))?;
     change_data.write_all(&callback_ip.octets())?;
